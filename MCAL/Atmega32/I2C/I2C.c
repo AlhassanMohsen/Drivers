@@ -9,6 +9,12 @@
 #include "I2C_prv.h"
 #include "I2C_config.h"
 
+#ifdef DEBUG_MODE
+#include "../../ECUAL/LED/LED.h"
+
+LED_t LEDTEST1={PORTA,PIN0};
+LED_t LEDTEST2={PORTA,PIN1};
+#endif
 
 static volatile uint8_t gu8_I2CState= I2C_NO_INFO;
 
@@ -29,6 +35,10 @@ uint8_t I2C_u8Init()
 	//Enable the I2C Peripheral
 	SET_BIT(TWCR_REG,TWEN_BIT);
 
+#ifdef DEBUG_MODE
+	LED_u8Init(&LEDTEST1);
+	LED_u8Init(&LEDTEST2);
+#endif
 
 	return u8ErrorState;
 }
@@ -47,13 +57,9 @@ uint8_t I2C_u8MasterSendByte(uint8_t u8SlaveAddress, uint8_t u8Data)
 	if (u8SlaveAddress<I2C_ADDRESSES_LIMIT)
 	{//check that the address is less than 120 because the addresses from 120 to 127 are reserved for future purposes
 
-		//Send the Start Condition
-		SET_BIT(TWCR_REG,TWSTA_BIT);
 		while (!(gu8_I2CState== I2C_MT_DATA_TRANSMITTED_ACK || gu8_I2CState== I2C_MT_DATA_TRANSMITTED_NACK))
 		{//do the following until the status of the I2C states that the transmission is done successfully
 
-			//Wait until it is sent
-			while (!GET_BIT(TWCR_REG,TWINT_BIT));
 			//Get the state of the I2C
 			//gu8_I2CState= I2C_u8GetStatus();
 
@@ -89,6 +95,25 @@ uint8_t I2C_u8MasterSendByte(uint8_t u8SlaveAddress, uint8_t u8Data)
 	{
 		u8ErrorState = I2C_WRONG_ADDRESS;
 	}
+	return u8ErrorState;
+}
+
+uint8_t I2C_u8MasterSendStart(void)
+{
+	uint8_t u8ErrorState=I2C_OK;
+	if (gu8_I2CState==I2C_NO_INFO)
+	{// if it is the first communication or after stop condition
+
+		//Send the Start Condition
+		SET_BIT(TWCR_REG,TWSTA_BIT);
+		//Wait until it is sent
+		while (!GET_BIT(TWCR_REG,TWINT_BIT));
+
+	}else
+	{
+		u8ErrorState= I2C_ILLEGAL_START;
+	}
+
 	return u8ErrorState;
 }
 
@@ -136,20 +161,17 @@ uint8_t I2C_u8SlaveGetByte(uint8_t* pu8Reading)
 {
 	/*Wait until the Device is addressed*/
 	while (!GET_BIT(TWCR_REG,TWINT_BIT));
+#ifdef DEBUG_MODE
+		LED_u8On(&LEDTEST2);
+#endif
 	/*Assign the high nibble of the I2C control register with value that will make it send a NACK after receiving data*/
 	ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
 	while (!(gu8_I2CState==I2C_SR_DATA_RECIEVED ||gu8_I2CState==I2C_SR_LAST_BYTE_RECIEVED ) );
 	ASSIGN_HIGH_NIB(TWCR_REG,I2C_RECOGNIZE_SLA_WITH_ACK);
 	gu8_I2CState=I2C_NO_INFO;
 	*pu8Reading= TWDR_REG;
-
-
-
-
 }
 
 void __vector_19(void) {
 	gu8_I2CState=TWSR_REG & I2C_PRESCALAR_MASK;
-
-
 }
