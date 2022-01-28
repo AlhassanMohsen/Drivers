@@ -49,25 +49,18 @@ uint8_t I2C_u8GetStatus(void)
 	return TWSR_REG & I2C_PRESCALAR_MASK;
 }
 
-uint8_t I2C_u8MasterSendSLA(uint8_t u8SlaveAddress)
+uint8_t I2C_u8MasterSendSLA(uint8_t u8SlaveAddress,uint8_t u8MasterOperation)
 {
 	uint8_t u8ErrorState= I2C_OK;
-	if (u8SlaveAddress<I2C_ADDRESSES_LIMIT)
-	{//check that the address is less than 120 because the addresses from 120 to 127 are reserved for future purposes
 		while (!GET_BIT(TWCR_REG,TWINT_BIT));
-		if (gu8_I2CState==I2C_MT_START_TRANSMITTED)
+		if (gu8_I2CState==I2C_MT_START_TRANSMITTED||gu8_I2CState==I2C_MT_REPEATED_START_TRANSMITTED)
 		{//if it is state that the start condition is successfully sent then load the slave address in the data register and set the mode to write
-
-			TWDR_REG = u8SlaveAddress;
-			CLR_BIT(TWDR_REG,0);
+			TWDR_REG = (u8SlaveAddress|u8MasterOperation);
 			// Clear the interrupt flag to start the next action by the peripheral
 			ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
 		}
 		while (!GET_BIT(TWCR_REG,TWINT_BIT));
-	}else
-	{
-		u8ErrorState = I2C_WRONG_ADDRESS;
-	}
+
 	return u8ErrorState;
 }
 
@@ -108,17 +101,57 @@ uint8_t I2C_u8SendRepeatedStart(void)
 {
 	uint8_t u8ErrorState = I2C_OK;
 //	uint8_t u8I2CState= I2C_u8GetStatus();
+	while (!GET_BIT(TWCR_REG,TWINT_BIT));
 
 	if (gu8_I2CState==I2C_MT_DATA_TRANSMITTED_ACK || gu8_I2CState==I2C_MT_DATA_TRANSMITTED_NACK)
 	{// if the current state is the data byte is sent
 		//Then send the Repeated start condition and clear the interrupt flag to send it
-		ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
+		ASSIGN_HIGH_NIB(TWCR_REG,I2C_SEND_START_CONDITION);
 	}else
 	{
 		// if not update the error state to indicate that the start condition can not be send here
 		u8ErrorState = I2C_START_WRONG_PLACE;
 	}
 
+
+	return u8ErrorState;
+}
+
+
+uint8_t I2C_u8MasterReceiveWithACK(uint8_t* pu8Data)
+{
+	uint8_t u8ErrorState=I2C_OK;
+	while (!GET_BIT(TWCR_REG,TWINT_BIT));
+	if (gu8_I2CState==I2C_MR_SLAVE_ADDRESS_TRANSMITTED_ACK||gu8_I2CState==I2C_MR_DATA_RECEIVED_ACK)
+	{
+		LED_u8On(&LEDTEST1);
+		ASSIGN_HIGH_NIB(TWCR_REG,I2C_RECEIVE_WITH_ACK);
+		while (!GET_BIT(TWCR_REG,TWINT_BIT));
+		*pu8Data=TWDR_REG;
+
+	}else if (gu8_I2CState==I2C_MR_SLAVE_ADDRESS_TRANSMITTED_NACK)
+	{
+		u8ErrorState= I2C_SLAVE_NOT_AVLBL;
+		ASSIGN_HIGH_NIB(TWCR_REG,I2C_SEND_STOP_CONDITION);
+	}
+	return u8ErrorState;
+}
+
+uint8_t I2C_u8MasterReceiveWithNAK(uint8_t* pu8Data)
+{
+	uint8_t u8ErrorState=I2C_OK;
+	while (!GET_BIT(TWCR_REG,TWINT_BIT));
+	if (gu8_I2CState==I2C_MR_SLAVE_ADDRESS_TRANSMITTED_ACK||gu8_I2CState==I2C_MR_DATA_RECEIVED_ACK)
+	{
+		ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
+		while (!GET_BIT(TWCR_REG,TWINT_BIT));
+		*pu8Data=TWDR_REG;
+
+	}else if (gu8_I2CState==I2C_MR_SLAVE_ADDRESS_TRANSMITTED_NACK)
+	{
+		u8ErrorState= I2C_SLAVE_NOT_AVLBL;
+		ASSIGN_HIGH_NIB(TWCR_REG,I2C_SEND_STOP_CONDITION);
+	}
 
 	return u8ErrorState;
 }
@@ -150,12 +183,14 @@ uint8_t I2C_u8SlaveGetByte(uint8_t* pu8Reading)
 	while (!GET_BIT(TWCR_REG,TWINT_BIT));
 
 	/*Assign the high nibble of the I2C control register with value that will make it send a NACK after receiving data*/
-	ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
+	ASSIGN_HIGH_NIB(TWCR_REG,I2C_RECEIVE_WITH_ACK);
 	while (!(gu8_I2CState==I2C_SR_DATA_RECIEVED ||gu8_I2CState==I2C_SR_LAST_BYTE_RECIEVED ) );
 	ASSIGN_HIGH_NIB(TWCR_REG,I2C_RECOGNIZE_SLA_WITH_ACK);
 	gu8_I2CState=I2C_NO_INFO;
 	*pu8Reading= TWDR_REG;
 }
+
+
 
 void __vector_19(void) {
 	gu8_I2CState=TWSR_REG & I2C_PRESCALAR_MASK;
