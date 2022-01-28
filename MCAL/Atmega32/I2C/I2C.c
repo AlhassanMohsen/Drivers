@@ -49,52 +49,39 @@ uint8_t I2C_u8GetStatus(void)
 	return TWSR_REG & I2C_PRESCALAR_MASK;
 }
 
-uint8_t I2C_u8MasterSendByte(uint8_t u8SlaveAddress, uint8_t u8Data)
+uint8_t I2C_u8MasterSendSLA(uint8_t u8SlaveAddress)
 {
-	uint8_t u8ErrorState = I2C_OK;
-
-
+	uint8_t u8ErrorState= I2C_OK;
 	if (u8SlaveAddress<I2C_ADDRESSES_LIMIT)
 	{//check that the address is less than 120 because the addresses from 120 to 127 are reserved for future purposes
+		while (!GET_BIT(TWCR_REG,TWINT_BIT));
+		if (gu8_I2CState==I2C_MT_START_TRANSMITTED)
+		{//if it is state that the start condition is successfully sent then load the slave address in the data register and set the mode to write
 
-		while (!(gu8_I2CState== I2C_MT_DATA_TRANSMITTED_ACK || gu8_I2CState== I2C_MT_DATA_TRANSMITTED_NACK))
-		{//do the following until the status of the I2C states that the transmission is done successfully
-
-			//Get the state of the I2C
-			//gu8_I2CState= I2C_u8GetStatus();
-
-			switch(gu8_I2CState)// check which state it is
-			{
-			case I2C_MT_START_TRANSMITTED:
-				//if it is state that the start condition is successfully sent then load the slave address in the data register and set the mode to write
-				TWDR_REG = u8SlaveAddress;
-				CLR_BIT(TWDR_REG,0);
-				// Clear the interrupt flag to start the next action by the peripheral
-				ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
-
-				break;
-			case I2C_MT_SLAVE_WRITE_TRANSMITTED_ACK:
-				//if it is state that the SLA/W is successfully sent then load the data to be sent in the data register
-				TWDR_REG= u8Data;
-				// Clear the interrupt flag to start the next action by the peripheral
-				ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
-				break;
-			case I2C_MT_SLAVE_WRITE_TRANSMITTED_NACK:
-				//if it is state that the SLA/W is successfully sent then load the data to be sent in the data register
-				TWDR_REG= u8Data;
-				// Clear the interrupt flag to start the next action by the peripheral
-				ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
-				break;
-
-			default:
-				u8ErrorState = I2C_WRONG_STATUS;
-			}
+			TWDR_REG = u8SlaveAddress;
+			CLR_BIT(TWDR_REG,0);
+			// Clear the interrupt flag to start the next action by the peripheral
+			ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
 		}
-
+		while (!GET_BIT(TWCR_REG,TWINT_BIT));
 	}else
 	{
 		u8ErrorState = I2C_WRONG_ADDRESS;
 	}
+	return u8ErrorState;
+}
+
+
+uint8_t I2C_u8MasterSendByte(uint8_t u8Data)
+{
+	uint8_t u8ErrorState = I2C_OK;
+
+	//Load the data in the I2C Data Register
+	TWDR_REG= u8Data;
+	// Clear the interrupt flag to start the next action by the peripheral
+	ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
+	while (!GET_BIT(TWCR_REG,TWINT_BIT));
+	//wait until the byte is sent
 	return u8ErrorState;
 }
 
@@ -161,9 +148,7 @@ uint8_t I2C_u8SlaveGetByte(uint8_t* pu8Reading)
 {
 	/*Wait until the Device is addressed*/
 	while (!GET_BIT(TWCR_REG,TWINT_BIT));
-#ifdef DEBUG_MODE
-		LED_u8On(&LEDTEST2);
-#endif
+
 	/*Assign the high nibble of the I2C control register with value that will make it send a NACK after receiving data*/
 	ASSIGN_HIGH_NIB(TWCR_REG,I2C_CLR_INTERRUPT_FLAG);
 	while (!(gu8_I2CState==I2C_SR_DATA_RECIEVED ||gu8_I2CState==I2C_SR_LAST_BYTE_RECIEVED ) );
